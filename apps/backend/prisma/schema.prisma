@@ -1,0 +1,154 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model MeetingMember {
+  meetingId      String
+  memberId       String
+  role           String
+  preference     String?
+  preferredStart DateTime?
+  meeting        Meeting   @relation(fields: [meetingId], references: [id])
+  member         Member    @relation(fields: [memberId], references: [id])
+
+  @@id([meetingId, memberId])
+}
+
+model Task {
+  id       String    @id @default(cuid())
+  title    String
+  due      DateTime?
+  strict   Boolean
+  memberId String
+  member   Member    @relation(fields: [memberId], references: [id])
+}
+
+enum AgendaItemStatus {
+  OPEN
+  DECIDED
+  PARKING
+}
+
+model Member {
+  id       String          @id @default(cuid())
+  email    String          @unique
+  roleLog  Json
+  meetings MeetingMember[]
+  tasks    Task[]
+
+  googleAccess  String?
+  googleRefresh String?
+
+  // 追加：Organizer としての 1:N
+  organizedMeetings Meeting[] @relation("OrganizerMeetings")
+
+  // 追加：自分が書いたアジェンダ項目
+  authoredItems AgendaItem[] @relation("MemberAuthoredItems")
+  minuteEdits   MinuteEdit[] @relation("MemberMinuteEdits")
+}
+
+model Meeting {
+  id          String          @id @default(cuid())
+  title       String
+  purpose     String
+  scheduledAt DateTime?
+  organizerId String
+  organizer   Member          @relation("OrganizerMeetings", fields: [organizerId], references: [id])
+  members     MeetingMember[]
+  agenda      Agenda?         @relation("MeetingAgenda")
+  minutes     Minutes?        @relation("MeetingMinutes")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model Agenda {
+  id        String           @id @default(cuid())
+  meetingId String           @unique
+  meeting   Meeting          @relation("MeetingAgenda", fields: [meetingId], references: [id])
+  items     AgendaItem[]
+  revisions AgendaRevision[]
+  updatedAt DateTime         @updatedAt
+  createdAt DateTime         @default(now())
+}
+
+model AgendaItem {
+  id       String @id @default(cuid())
+  agendaId String
+  agenda   Agenda @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  // ← 関係名を Member 側と合わせる
+  author   Member? @relation("MemberAuthoredItems", fields: [authorId], references: [id])
+
+  text      String
+  status    AgendaItemStatus @default(OPEN)
+  sortOrder Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([agendaId, sortOrder])
+}
+
+model AgendaRevision {
+  id        String   @id @default(cuid())
+  agendaId  String
+  agenda    Agenda   @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+  snapshot  Json // 現在の items のスナップショット（差分UI用に簡易）
+  note      String?
+  authorId  String?
+  createdAt DateTime @default(now())
+}
+
+model HonestThread {
+  id            String   @id @default(cuid())
+  meetingId     String
+  memberId      String
+  messages      Json // [{role:'user'|'assistant', content:string}, ...]
+  suggestedText String?
+  status        String   @default("OPEN") // OPEN | APPLIED | DISCARDED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([meetingId, memberId, status])
+}
+
+model PreQuestion {
+  id         String    @id @default(cuid())
+  meetingId  String
+  toMemberId String
+  question   String
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([meetingId])
+}
+
+model Minutes {
+  id        String       @id @default(cuid())
+  meetingId String       @unique
+  meeting   Meeting      @relation("MeetingMinutes", fields: [meetingId], references: [id])
+  content   String // Markdown/プレーンテキスト
+  edits     MinuteEdit[]
+  updatedAt DateTime     @updatedAt
+  createdAt DateTime     @default(now())
+}
+
+model MinuteEdit {
+  id        String   @id @default(cuid())
+  minutesId String
+  minutes   Minutes  @relation(fields: [minutesId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    Member?  @relation("MemberMinuteEdits", fields: [authorId], references: [id])
+  note      String? // 口述訂正内容など
+  oldText   String
+  newText   String
+  createdAt DateTime @default(now())
+
+  @@index([minutesId, createdAt])
+}

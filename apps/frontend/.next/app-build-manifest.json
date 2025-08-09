@@ -1,0 +1,29 @@
+{
+  "pages": {
+    "/meetings/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/meetings/page.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/layout.js"
+    ],
+    "/meetings/[id]/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/meetings/[id]/page.js"
+    ],
+    "/meetings/[id]/agenda/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/meetings/[id]/agenda/page.js"
+    ],
+    "/meetings/[id]/minutes/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/meetings/[id]/minutes/page.js"
+    ]
+  }
+}
