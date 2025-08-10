@@ -50,3 +50,5 @@ apps/frontend/.env.local
 apps/backend/keys/*.json
 *.pem
 *.p12
+
+keys\service-account.json
