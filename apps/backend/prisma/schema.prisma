@@ -8,6 +8,17 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum AgendaItemStatus {
+  OPEN
+  DECIDED
+  PARKING
+}
+
 model MeetingMember {
   meetingId      String
   memberId       String
@@ -20,37 +31,25 @@ model MeetingMember {
   @@id([meetingId, memberId])
 }
 
-model Task {
-  id       String    @id @default(cuid())
-  title    String
-  due      DateTime?
-  strict   Boolean
-  memberId String
-  member   Member    @relation(fields: [memberId], references: [id])
-}
-
-enum AgendaItemStatus {
-  OPEN
-  DECIDED
-  PARKING
-}
-
 model Member {
-  id       String          @id @default(cuid())
-  email    String          @unique
-  roleLog  Json
-  meetings MeetingMember[]
-  tasks    Task[]
+  id        String          @id @default(cuid())
+  email     String          @unique
+  roleLog   Json
+  meetings  MeetingMember[]
 
+  // 既存の Google トークン列がある前提（なければ維持）
   googleAccess  String?
   googleRefresh String?
 
-  // 追加：Organizer としての 1:N
+  // Organizer としての 1:N
   organizedMeetings Meeting[] @relation("OrganizerMeetings")
 
-  // 追加：自分が書いたアジェンダ項目
+  // 自分が書いたアジェンダ項目／議事メモ編集
   authoredItems AgendaItem[] @relation("MemberAuthoredItems")
   minuteEdits   MinuteEdit[] @relation("MemberMinuteEdits")
+
+  // ★ 追加：自分が担当のタスク（リレーション名を Task 側と一致させる）
+  tasks Task[] @relation("MemberTaskAssignee")
 }
 
 model Meeting {
@@ -65,6 +64,36 @@ model Meeting {
   minutes     Minutes?        @relation("MeetingMinutes")
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+  // ★ 追加：Meeting に紐づくタスクの逆参照
+  tasks       Task[]
+}
+
+model Task {
+  id         String     @id @default(cuid())
+
+  // Meeting への必須外部キー（会議削除でタスクも削除）
+  meetingId  String
+  meeting    Meeting    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // 担当者（任意）
+  assigneeId String?
+  assignee   Member?    @relation("MemberTaskAssignee", fields: [assigneeId], references: [id])
+
+  title       String
+  description String?
+  due         DateTime?
+  mandatory   Boolean    @default(false)
+
+  // Google Tasks 連携（任意）
+  googleTaskId     String?
+  googleTaskListId String?
+
+  status     TaskStatus @default(OPEN)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([meetingId, assigneeId, status])
 }
 
 model Agenda {
@@ -83,7 +112,6 @@ model AgendaItem {
   agenda   Agenda @relation(fields: [agendaId], references: [id], onDelete: Cascade)
 
   authorId String?
-  // ← 関係名を Member 側と合わせる
   author   Member? @relation("MemberAuthoredItems", fields: [authorId], references: [id])
 
   text      String
@@ -99,7 +127,7 @@ model AgendaRevision {
   id        String   @id @default(cuid())
   agendaId  String
   agenda    Agenda   @relation(fields: [agendaId], references: [id], onDelete: Cascade)
-  snapshot  Json // 現在の items のスナップショット（差分UI用に簡易）
+  snapshot  Json     // 現在の items のスナップショット（差分UI用に簡易）
   note      String?
   authorId  String?
   createdAt DateTime @default(now())
@@ -130,13 +158,13 @@ model PreQuestion {
 }
 
 model Minutes {
-  id        String       @id @default(cuid())
-  meetingId String       @unique
-  meeting   Meeting      @relation("MeetingMinutes", fields: [meetingId], references: [id])
-  content   String // Markdown/プレーンテキスト
+  id        String   @id @default(cuid())
+  meetingId String   @unique
+  meeting   Meeting  @relation("MeetingMinutes", fields: [meetingId], references: [id])
+  content   String   // Markdown/プレーンテキスト
   edits     MinuteEdit[]
-  updatedAt DateTime     @updatedAt
-  createdAt DateTime     @default(now())
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }
 
 model MinuteEdit {
@@ -145,7 +173,7 @@ model MinuteEdit {
   minutes   Minutes  @relation(fields: [minutesId], references: [id], onDelete: Cascade)
   authorId  String?
   author    Member?  @relation("MemberMinuteEdits", fields: [authorId], references: [id])
-  note      String? // 口述訂正内容など
+  note      String?  // 口述訂正内容など
   oldText   String
   newText   String
   createdAt DateTime @default(now())

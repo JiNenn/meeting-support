@@ -5,28 +5,19 @@ import prisma from '@backend/prismaClient';           // ① 追加
 export const authRouter = Router();
 
 /* ───────── Google OAuth ───────── */
-authRouter.get(
-  '/google',
-  passport.authenticate('google', {
-    scope: [
-      'email',
-      'profile',
-      'https://www.googleapis.com/auth/gmail.send',   // ② Gmail 送信スコープ
-    ],
-    accessType: 'offline',      // ② refresh_token を必ず取得
-    prompt: 'consent',
-  }),
+const GOOGLE_SCOPES = [
+  'email', 'profile',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/tasks', // ★ 追加
+];
+
+authRouter.get('/google',
+  passport.authenticate('google', { scope: GOOGLE_SCOPES, accessType: 'offline', prompt: 'consent' })
+);
+authRouter.get('/google/link',
+  passport.authenticate('google', { scope: GOOGLE_SCOPES, accessType: 'offline', prompt: 'consent', state: 'link' })
 );
 
-// 新規: ログイン中ユーザーにトークンを「リンク」
-authRouter.get('/google/link',
-  passport.authenticate('google', {
-    scope: ['email', 'profile', 'https://www.googleapis.com/auth/gmail.send'],
-    accessType: 'offline',
-    prompt: 'consent',
-    state: 'link', // ★ callback 側で識別
-  })
-);
 
 authRouter.get(
   '/google/callback',

@@ -9,6 +9,7 @@ import { authRouter } from './modules/auth/auth.routes';
 import { meetingRouter } from './modules/meetings/meeting.routes';
 import { agendaRouter } from './modules/agenda/agenda.routes';
 import { minutesRouter } from './modules/minutes/minutes.routes';
+import { tasksRouter } from './modules/tasks/tasks.routes';
 
 const app = express();
 initGoogleStrategy();
@@ -40,6 +41,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/meetings', meetingRouter);
 app.use('/api/meetings', agendaRouter);
 app.use('/api/meetings', minutesRouter);
+app.use('/api/meetings', tasksRouter);
 
 /* デバッグ（任意） */
 app.use((req, _res, next) => { console.log('AFTER PASSPORT user=', (req as any).user?.id); next(); });

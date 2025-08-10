@@ -41,3 +41,12 @@ coverage/
 # Temporary
 *.tmp
 *.temp
+
+# secrets
+.env
+.env*.local
+apps/backend/.env
+apps/frontend/.env.local
+apps/backend/keys/*.json
+*.pem
+*.p12
