@@ -1,6 +1,0 @@
-{
-  "/meetings/[id]/page": "app/meetings/[id]/page.js",
-  "/meetings/page": "app/meetings/page.js",
-  "/meetings/[id]/agenda/page": "app/meetings/[id]/agenda/page.js",
-  "/meetings/[id]/minutes/page": "app/meetings/[id]/minutes/page.js"
-}
