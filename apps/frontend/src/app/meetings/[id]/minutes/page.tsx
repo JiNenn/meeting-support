@@ -1,10 +1,32 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import * as Diff from 'diff';
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4000';
 
 type Edit = { id:string; note?:string; createdAt:string; author?: { id:string; email:string }; oldText:string; newText:string };
+
+function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  const parts = Diff.diffLines(oldText ?? '', newText ?? '');
+  return (
+    <div style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+      {parts.map((p, i) => {
+        if (p.added) {
+          return <mark key={i} style={{ background: '#d4f8d4' }}>{p.value}</mark>;
+        }
+        if (p.removed) {
+          return (
+            <mark key={i} style={{ background: '#ffd6d6', textDecoration: 'line-through' }}>
+              {p.value}
+            </mark>
+          );
+        }
+        return <span key={i}>{p.value}</span>;
+      })}
+    </div>
+  );
+}
 
 export default function MinutesPage() {
   const { id } = useParams<{id:string}>();
@@ -55,6 +77,7 @@ export default function MinutesPage() {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ note }),
     });
+    if (!r.ok) { alert(`アップロード失敗: ${await r.text()}`); return; }
     if (r.ok) { await load(); }
   };
 
@@ -84,11 +107,16 @@ export default function MinutesPage() {
             <div>
               <b>{e.note ?? 'edit'}</b> / {new Date(e.createdAt).toLocaleString()} / {e.author?.email ?? 'unknown'}
             </div>
-            <details style={{marginTop:6}}>
-              <summary>変更内容を表示</summary>
-              <div style={{display:'grid', gap:6, marginTop:6}}>
-                <div><b>旧:</b><pre style={{whiteSpace:'pre-wrap'}}>{e.oldText}</pre></div>
-                <div><b>新:</b><pre style={{whiteSpace:'pre-wrap'}}>{e.newText}</pre></div>
+            <details style={{ marginTop: 6 }}>
+              <summary>差分を表示</summary>
+              <div style={{ marginTop: 6 }}>
+                <DiffView oldText={e.oldText} newText={e.newText} />
+              </div>
+
+              {/* ←任意：従来の「旧/新」も残したい場合は下を残す */}
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                <div><b>旧:</b><pre style={{ whiteSpace: 'pre-wrap' }}>{e.oldText}</pre></div>
+                <div><b>新:</b><pre style={{ whiteSpace: 'pre-wrap' }}>{e.newText}</pre></div>
               </div>
             </details>
           </li>

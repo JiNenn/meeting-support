@@ -1,60 +1,28 @@
-/* apps/backend/src/modules/schedule/ranking.algorithm.ts */
+// apps/backend/src/modules/schedule/ranking.algorithm.ts
+import { freeBusy, isFree } from './calendar.service';
 
-import prisma from '@backend/prismaClient';
-import { fetchBusySlots } from './googleCalendar.service';
-import { calendar_v3 } from 'googleapis';
-
-type Busy = { start: string; end: string }[];
-type Candidate = { start: Date; end: Date; requiredOK: number; optionalOK: number };
-type TimePeriod = calendar_v3.Schema$TimePeriod;
-
-function isFree(busy: TimePeriod[] | undefined, s: Date, e: Date): boolean {
-  if (!busy) return true;
-  return busy.every(b => {
-    if (!b.start || !b.end) return true;
-    const bs = new Date(b.start);
-    const be = new Date(b.end);
-    return e <= bs || s >= be;
-  });
-}
-
-/** rangeStart〜rangeEnd を 30 分刻みでスキャンしソート済み候補を返す */
-export async function rankCandidates(
-  requiredIds: string[],
-  optionalIds: string[],
-  rangeStart: Date,
-  rangeEnd: Date,
-): Promise<Candidate[]> {
-  /* ❶ id → email マッピング */
-  const reqMembers = await prisma.member.findMany({
-    where: { id: { in: requiredIds } },
-    select: { email: true },
-  });
-  const optMembers = await prisma.member.findMany({
-    where: { id: { in: optionalIds } },
-    select: { email: true },
-  });
-  const reqEmails = reqMembers.map(m => m.email);
-  const optEmails = optMembers.map(m => m.email);
-
-  /* ❷ freebusy API 呼び出し（メールアドレス配列で十分） */
-  const busyReq = await fetchBusySlots(reqEmails, rangeStart, rangeEnd);
-  const busyOpt = await fetchBusySlots(optEmails, rangeStart, rangeEnd);
-
-  /* ❸ 30 分グリッドで空きスロット集計 */
-  const slotMs = 30 * 60 * 1000;
-  const results: Candidate[] = [];
-  for (let t = +rangeStart; t + slotMs <= +rangeEnd; t += slotMs) {
-    const s = new Date(t);
-    const e = new Date(t + slotMs);
-
-    const okReq = reqEmails.filter(em => isFree(busyReq[em]?.busy, s, e)).length;
-    if (okReq !== reqEmails.length) continue;           // 必須全員 OK 以外は除外
-
-    const okOpt = optEmails.filter(em => isFree(busyOpt[em]?.busy, s, e)).length;
-    results.push({ start: s, end: e, requiredOK: okReq, optionalOK: okOpt });
+export async function rankCandidates(requiredIds: string[], optionalIds: string[], from: Date, to: Date) {
+  // 30分グリッド
+  const slots: { start: Date; end: Date }[] = [];
+  const cur = new Date(from);
+  while (cur < to) {
+    const start = new Date(cur);
+    const end = new Date(cur); end.setMinutes(end.getMinutes() + 30);
+    slots.push({ start, end });
+    cur.setMinutes(cur.getMinutes() + 30);
   }
 
-  /* ❹ 任意参加者数で降順ソート */
-  return results.sort((a, b) => b.optionalOK - a.optionalOK);
+  const busyReq = await freeBusy(requiredIds, from, to);
+  const busyOpt = await freeBusy(optionalIds, from, to);
+
+  const scored = slots.map(s => {
+    const okReq = requiredIds.filter(id => isFree(busyReq[id] ?? [], s.start, s.end)).length;
+    const okOpt = optionalIds.filter(id => isFree(busyOpt[id] ?? [], s.start, s.end)).length;
+    const score = okReq * 1000 + okOpt; // 必須を重み付け
+    return { start: s.start.toISOString(), end: s.end.toISOString(), optionalOK: okOpt, score, requiredOK: okReq };
+  })
+  .filter(x => x.requiredOK === requiredIds.length) // 必須全員が空いている枠のみ
+  .sort((a,b) => b.score - a.score);
+
+  return scored;
 }

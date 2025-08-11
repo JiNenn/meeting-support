@@ -7,6 +7,8 @@ import { ensureAuthenticated } from '@backend/middleware/ensureAuthenticated';
 import { requireOrganizer } from '@backend/middleware/requireOrganizer';
 import { rankCandidates } from '@backend/modules/schedule/ranking.algorithm';
 import { setPreference } from './preference.controller';
+import { audit } from '@backend/lib/audit';
+
 
 export const meetingRouter = Router();
 
@@ -52,6 +54,18 @@ meetingRouter.get('/:id/candidates', ensureAuthenticated, async (req, res) => {
   const cand = await rankCandidates(reqIds, optIds, start, end);
   res.json(cand.slice(0, 10));
 });
+
+// 監査ログの閲覧（主催者のみ）
+meetingRouter.get('/:id/logs', ensureAuthenticated, requireOrganizer, async (req, res) => {
+  const rows = await prisma.auditLog.findMany({
+    where: { meetingId: req.params.id },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    include: { actor: { select: { id: true, email: true } } }
+  });
+  res.json(rows);
+});
+
 
 // 希望登録（認証必須）
 meetingRouter.patch('/:id/candidates', ensureAuthenticated, setPreference);

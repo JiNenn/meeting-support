@@ -4,6 +4,7 @@ import { ensureAuthenticated } from '@backend/middleware/ensureAuthenticated';
 import { requireMeetingMember } from '@backend/middleware/requireMember';
 import { suggestConcise, generatePreQuestions } from '@backend/lib/ai';
 import { notifyMember } from '@backend/modules/notification';
+import { autoRefreshAgenda } from './agenda.service'; 
 
 export const agendaRouter = Router();
 
@@ -143,4 +144,9 @@ agendaRouter.post('/:id/pre-questions', ensureAuthenticated, requireMeetingMembe
   }));
 
   res.json({ ok: true, count: participants.length });
+});
+
+agendaRouter.post('/:id/agenda/refresh', ensureAuthenticated, requireMeetingMember, async (req, res) => {
+  await autoRefreshAgenda(req.params.id);
+  res.json({ ok: true });
 });

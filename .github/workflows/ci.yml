@@ -1,19 +1,28 @@
 # .github/workflows/ci.yml
 name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-
+on: [push, pull_request]
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meeting_support
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres" --health-interval=5s
+          --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/meeting_support
+      SESSION_SECRET: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: "npm"
+        with: { node-version: '20', cache: 'npm' }
       - run: npm ci
-      - run: npx turbo run build lint test
+      - run: npx prisma migrate deploy --schema apps/backend/prisma/schema.prisma
+      - run: npm run -w apps/backend build
+      - run: npm run -w apps/frontend build
+      # Jest / Playwright を後で追加

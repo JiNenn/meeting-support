@@ -25,6 +25,8 @@ type MeetingDetail = {
 };
 
 type Candidate = { start: string; end: string; optionalOK: number };
+// NEW: 役割ブートストラップ候補
+type RoleSuggestion = { email: string; score: number };
 
 // ← 環境変数が無ければ 4000 を既定
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4000';
@@ -62,6 +64,44 @@ export default function MeetingPage() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('REQUIRED');
 
+  // NEW: よく一緒に会議する人（役割ブートストラップ）
+  const [sugs, setSugs] = useState<RoleSuggestion[]>([]);
+  // === ここから追加（共有リンク） ===
+  const [shareUrl, setShareUrl] = useState<string>('');
+
+  const issueShare = async () => {
+    const r = await fetch(`${API_BASE}/api/meetings/${id}/share`, {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ttlHours: 72 }), // 例: 72時間で期限
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> '');
+      alert(`共有リンクの発行に失敗しました: ${r.status} ${r.statusText} ${t}`);
+      return;
+    }
+    const d = await r.json();
+    setShareUrl(d.url);
+    try { await navigator.clipboard?.writeText(d.url); } catch {}
+    alert('共有リンクを発行しました（クリップボードにもコピー）');
+  };
+
+  const revokeShare = async () => {
+    if (!confirm('すべての共有リンクを無効化します。よろしいですか？')) return;
+    const r = await fetch(`${API_BASE}/api/meetings/${id}/share`, {
+      method:'DELETE', credentials:'include',
+    });
+    if (!r.ok && r.status !== 204) {
+      const t = await r.text().catch(()=> '');
+      alert(`共有リンクの無効化に失敗しました: ${r.status} ${r.statusText} ${t}`);
+      return;
+    }
+    setShareUrl('');
+    alert('共有リンクを無効化しました');
+  };
+  // === 共有リンク ここまで ===
+
+
   const load = async () => {
     setLoading(true);
     setErr('');
@@ -84,6 +124,18 @@ export default function MeetingPage() {
 
   useEffect(() => { if (id) void load(); }, [id]);
 
+  // NEW: 役割ブートストラップ候補の取得（ページ初期表示で一度）
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getJson<RoleSuggestion[]>('/api/members/bootstrap/role-suggestions');
+        setSugs((data ?? []).sort((a, b) => b.score - a.score));
+      } catch {
+        // 無視（UIは静かに失敗）
+      }
+    })();
+  }, []);
+
   const invite = async () => {
     if (!email) return alert('メールアドレスを入力してください');
     try {
@@ -96,6 +148,20 @@ export default function MeetingPage() {
       void load();
     } catch (e: any) {
       alert(`招待に失敗しました: ${e.message ?? e}`);
+    }
+  };
+
+  // NEW: スニペの inviteEmail ヘルパ（REQUIRED/OPTIONAL 両対応）
+  const inviteEmail = async (em: string, r: Role) => {
+    try {
+      await getJson<unknown>(`/api/meetings/${id}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ email: em, role: r }),
+      });
+      await load();
+    } catch (e) {
+      // 個別行での軽量操作のため通知は控えめに。必要ならトーストに変更可
+      console.warn('inviteEmail failed', e);
     }
   };
 
@@ -154,6 +220,50 @@ export default function MeetingPage() {
             {detail.scheduledAt ? new Date(detail.scheduledAt).toLocaleString() : '未確定'}
           </span>
         </p>
+
+        {/* 共有リンク（主催者のみ） */}
+        {isOrganizer && (
+          <section className="mt-3">
+            <h3 className="font-semibold">共有リンク</h3>
+            <div className="flex gap-2 mt-2">
+              <button onClick={issueShare} className="px-3 py-1 rounded bg-slate-600 text-white">発行</button>
+              <button onClick={revokeShare} className="px-3 py-1 rounded bg-slate-500 text-white">無効化</button>
+              {shareUrl && (
+                <a href={shareUrl} target="_blank" className="underline text-blue-700" rel="noreferrer">
+                  リンクを開く
+                </a>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* NEW: よく一緒に会議している人（主催者のみ表示） */}
+        {isOrganizer && sugs.length > 0 && (
+          <div className="mt-4 rounded-lg border p-3 bg-gray-50">
+            <div className="text-sm text-gray-600 mb-2">最近よく一緒に会議している人</div>
+            <ul className="text-sm space-y-1">
+              {sugs.slice(0, 5).map((s) => (
+                <li key={s.email} className="flex items-center justify-between">
+                  <span>{s.email}（{s.score}件）</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="text-blue-700 underline"
+                      onClick={() => inviteEmail(s.email, 'REQUIRED')}
+                    >
+                      招待（必須）
+                    </button>
+                    <button
+                      className="text-gray-700 underline"
+                      onClick={() => inviteEmail(s.email, 'OPTIONAL')}
+                    >
+                      招待（任意）
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
 
       {/* メンバー一覧 + 招待（主催者のみ表示） */}

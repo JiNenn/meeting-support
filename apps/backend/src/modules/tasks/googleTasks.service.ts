@@ -25,16 +25,23 @@ async function ensureTaskList(auth: any) {
   return created.data.id!;
 }
 
-export async function pushTaskToGoogle(taskId: string) {
+// apps/backend/src/modules/tasks/googleTasks.service.ts
+export async function pushTaskToGoogle(taskId: string, opts?: { fallbackToOrganizer?: boolean }) {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
     include: { assignee: true, meeting: true },
   });
   if (!task) throw new Error('task not found');
-  if (!task.assigneeId) throw new Error('assignee required to push');
 
-  const auth = await getOAuthForMember(task.assigneeId);
-  if (!auth) return { ok: false, reason: 'no_token' as const };
+  // 1) 担当者トークン
+  let auth = task.assigneeId ? await getOAuthForMember(task.assigneeId) : null;
+
+  // 2) フォールバック：担当者なし/トークンなし → 主催者のトークン
+  const allowFallback = opts?.fallbackToOrganizer !== false;
+  if (!auth && allowFallback) {
+    auth = await getOAuthForMember(task.meeting.organizerId);
+  }
+  if (!auth) return { ok: false as const, reason: 'no_token' as const };
 
   const listId = await ensureTaskList(auth);
   const tasks = google.tasks({ version: 'v1', auth });
@@ -48,11 +55,7 @@ export async function pushTaskToGoogle(taskId: string) {
 
   const created = await tasks.tasks.insert({
     tasklist: listId,
-    requestBody: {
-      title: task.title,
-      notes,
-      due, // RFC3339
-    },
+    requestBody: { title: task.title, notes, due },
   });
 
   await prisma.task.update({
@@ -62,3 +65,4 @@ export async function pushTaskToGoogle(taskId: string) {
 
   return { ok: true as const, googleTaskId: created.data.id };
 }
+

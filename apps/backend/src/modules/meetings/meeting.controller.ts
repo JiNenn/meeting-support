@@ -2,6 +2,8 @@
 import { Request, Response } from 'express';
 import prisma from '@backend/prismaClient';
 import { sendMeetingNotification } from '@backend/modules/notification/gmail.service';
+import { upsertMeetingEvent } from '@backend/modules/schedule/calendarWrite.service';
+import { audit } from '@backend/lib/audit';
 
 // 既存 createMeeting ---------------------------------
 export const createMeeting = async (req: Request, res: Response) => {
@@ -20,6 +22,7 @@ export const createMeeting = async (req: Request, res: Response) => {
     update: { role: 'REQUIRED' },
     create: { meetingId: meeting.id, memberId: organizerId, role: 'REQUIRED' },
   });
+  await audit(req, meeting.id, 'MEETING_CREATE', { title: meeting.title, purpose: meeting.purpose });
 
   res.status(201).json(meeting);
 };
@@ -57,6 +60,7 @@ export const getMeeting = async (req: Request, res: Response) => {
 
 export const finalizeMeeting = async (req: Request, res: Response) => {
   const meetingId = req.params.id;
+  const { id } = req.params;
 
   /* ❶ preference 集計 */
   const prefs = await prisma.meetingMember.findMany({
@@ -84,6 +88,10 @@ export const finalizeMeeting = async (req: Request, res: Response) => {
   const participants = await prisma.meetingMember.findMany({
     where: { meetingId, role: 'REQUIRED' },
   });
+  const updated = await prisma.meeting.update({
+    where: { id },
+    data: { /* 既存の scheduledAt 設定処理があるなら残す */ },
+  });
   await Promise.all(
     participants.map(p =>
       sendMeetingNotification(
@@ -93,6 +101,22 @@ export const finalizeMeeting = async (req: Request, res: Response) => {
       ),
     ),
   );
+  await audit(req, id, 'MEETING_FINALIZE', { scheduledAt: new Date().toISOString() });
+  await audit(req, id, 'MEETING_FINALIZE', { scheduledAt: updated.scheduledAt });
+
+  // ★ カレンダー書き込み（環境変数で有効化）
+  if (process.env.CALENDAR_WRITE === 'true') {
+    try {
+      const result = await upsertMeetingEvent(id);
+      if (result.ok) {
+        await audit(req, id, 'MEETING_FINALIZE', { googleEventId: result.eventId, htmlLink: result.htmlLink });
+      } else {
+        await audit(req, id, 'MEETING_FINALIZE', { calendarWrite: 'skipped', reason: result.reason });
+      }
+    } catch (e: any) {
+      await audit(req, id, 'MEETING_FINALIZE', { calendarWrite: 'error', message: e?.message ?? String(e) });
+    }
+  }
 
   res.json({ scheduledAt: bestDate });
 };

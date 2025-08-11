@@ -8,7 +8,9 @@ export const authRouter = Router();
 const GOOGLE_SCOPES = [
   'email', 'profile',
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/tasks', // ★ 追加
+  'https://www.googleapis.com/auth/tasks',
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
 ];
 
 authRouter.get('/google',

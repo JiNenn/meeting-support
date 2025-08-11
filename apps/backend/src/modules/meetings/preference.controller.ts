@@ -1,6 +1,7 @@
 // apps/backend/src/modules/meetings/preference.controller.ts
 import prisma from '@backend/prismaClient';
 import { Request, Response } from 'express';
+import { audit } from '@backend/lib/audit';
 
 export async function setPreference(req: Request, res: Response) {
   console.log('PREF user=', req.user, 'body=', req.body);
@@ -24,6 +25,7 @@ export async function setPreference(req: Request, res: Response) {
       preferredStart: new Date(start),
     },
   });
+  await audit(req, meetingId, 'PREFERENCE_SET', { start, preference });
 
   res.sendStatus(204);
 }

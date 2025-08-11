@@ -90,6 +90,11 @@ tasksRouter.post('/:id/tasks/:taskId/push', ensureAuthenticated, requireMeetingM
     }
     return res.json(result);
   } catch (e: any) {
-    return res.status(500).json({ error: e.message ?? String(e) });
+    const msg =
+      e?.response?.data?.error?.message || // Google API の典型
+      e?.errors?.[0]?.message ||
+      e?.message || String(e);
+    console.error('[tasks.push] error', e?.response?.data || e);
+    return res.status(502).json({ error: msg });
   }
 });

@@ -39,6 +39,7 @@ export default function AgendaPage() {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ message: msg }),
     });
+    if (!r.ok) { alert(`アップロード失敗: ${await r.text()}`); return; }
     const { threadId, suggestedText } = await r.json();
     if (confirm(`この内容でアジェンダに反映しますか？\n\n${suggestedText}`)) {
       await fetch(`${API}/api/meetings/${id}/honest/${threadId}/apply`, {
@@ -52,6 +53,13 @@ export default function AgendaPage() {
     if (!confirm('全参加者に事前質問を送ります。よろしいですか？')) return;
     await fetch(`${API}/api/meetings/${id}/pre-questions`, { method:'POST', credentials:'include' });
     alert('送信しました（ログまたはGmailへ）');
+  };
+
+  // apps/frontend/src/app/meetings/[id]/agenda/page.tsx のボタン群に追加
+  const refreshNow = async () => {
+    await fetch(`${API}/api/meetings/${id}/agenda/refresh`, { method:'POST', credentials:'include' });
+    await load();
+    alert('アジェンダを自動更新しました');
   };
 
   if (err) {
@@ -70,6 +78,7 @@ export default function AgendaPage() {
         <button onClick={add}>追加</button>
         <button onClick={honest}>本音ボタン</button>
         <button onClick={sendPreQ}>事前質問を送る</button>
+        <button onClick={refreshNow}>今すぐ更新</button>
       </div>
       <ul style={{marginTop:16}}>
         {items.map(i => <li key={i.id}>• {i.text} <small>[{i.status}]</small></li>)}

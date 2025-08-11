@@ -1,5 +1,6 @@
 import prisma from '@backend/prismaClient';
 import { Request, Response } from 'express';
+import { audit } from '@backend/lib/audit';
 
 /** 招待: emailとrole('REQUIRED'|'OPTIONAL') を受け取り、Memberをupsert→MeetingMemberをupsert */
 export async function inviteMember(req: Request, res: Response) {
@@ -19,6 +20,7 @@ export async function inviteMember(req: Request, res: Response) {
     update: { role },
     create: { meetingId, memberId: member.id, role },
   });
+  await audit(req, meetingId, 'MEMBER_INVITE', { email, role });
 
   res.status(204).end();
 }

@@ -35,9 +35,10 @@ export default function TasksPage() {
     const r = await fetch(`${API}/api/meetings/${id}/tasks/${taskId}/push`, {
       method:'POST', credentials:'include'
     });
+    const text = await r.text();
     if (r.status === 202) return alert('担当者に Google トークンが無いためスキップしました');
-    if (r.ok) alert('Google Tasks に追加しました');
-    else alert('Push 失敗');
+    if (!r.ok) return alert(`Push 失敗: ${text}`);
+    alert('Google Tasks に追加しました');
   };
 
   const toggleDone = async (task:Task) => {
@@ -78,7 +79,9 @@ export default function TasksPage() {
             </div>
             <div style={{marginTop:6, display:'flex', gap:8}}>
               <button onClick={()=>toggleDone(t)}>{t.status==='OPEN'?'完了にする':'未完に戻す'}</button>
-              <button onClick={()=>push(t.id)}>Google ToDoへ</button>
+              <button disabled={!t.assignee} title={!t.assignee ? '担当者を設定してください' : ''} onClick={()=>push(t.id)}>
+                Google ToDoへ
+              </button>
             </div>
           </li>
         ))}

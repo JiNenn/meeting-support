@@ -15,6 +15,7 @@
     "@tanstack/react-query": "^5.84.2",
     "@tanstack/react-query-devtools": "^5.84.2",
     "axios": "^1.11.0",
+    "diff": "^8.0.2",
     "next": "^14.2.31",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
