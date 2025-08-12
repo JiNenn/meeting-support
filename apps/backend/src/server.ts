@@ -20,6 +20,7 @@ import { shareRouter } from './modules/share/share.routes';
 import { debugRouter } from './modules/debug/debug.routes';
 import { statusRouter } from './modules/system/status.routes';
 import { pdfRouter } from './modules/export/pdf.routes';
+import { demoRouter } from './modules/demo/demo.routes';
 
 const app = express();
 initGoogleStrategy();
@@ -87,6 +88,7 @@ app.use('/api', shareRouter);
 app.use('/api', debugRouter);
 app.use('/api', statusRouter);
 app.use('/api/meetings', pdfRouter);
+app.use('/api', demoRouter);
 
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 

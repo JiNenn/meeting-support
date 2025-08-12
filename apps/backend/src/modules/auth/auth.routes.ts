@@ -2,8 +2,18 @@ import { Router } from 'express';
 import passport from 'passport';
 import prisma from '@backend/prismaClient'; 
 import { getMemberRefreshToken } from '@backend/lib/googleTokens';
+import { ensureAuthenticated } from '@backend/middleware/ensureAuthenticated';
 
 export const authRouter = Router();
+
+authRouter.post('/google/unlink', ensureAuthenticated, async (req, res) => {
+  const me = (req as any).user.id as string;
+  await prisma.member.update({
+    where: { id: me },
+    data: { googleAccess: null, googleRefresh: null },
+  });
+  res.json({ ok: true });
+});
 
 /* ───────── Google OAuth ───────── */
 const GOOGLE_SCOPES = [
@@ -61,6 +71,19 @@ authRouter.get('/status', async (req, res) => {
 });
 
 
+authRouter.get('/mock-as', async (req, res, next) => {
+  try {
+    const email = String(req.query.email ?? '').toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+
+    const user = await prisma.member.upsert({
+      where: { email },
+      update: {},
+      create: { email, roleLog: [] },
+    });
+    req.login(user, err => (err ? next(err) : res.json({ ok: true, id: user.id, email: user.email })));
+  } catch (e) { next(e); }
+});
 
 
 /* ───────── ログアウト ───────── */

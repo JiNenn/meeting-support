@@ -9,7 +9,10 @@
     "start": "node dist/server.js",
     "seed": "ts-node --transpile-only prisma/seed.ts",
     "test": "jest -c jest.config.cjs --runInBand",
-    "test:watch": "jest -c jest.config.cjs --watch"
+    "test:watch": "jest -c jest.config.cjs --watch",
+    "preflight": "ts-node -r tsconfig-paths/register ./scripts/preflight.ts",
+    "demo:reset": "curl -X POST http://localhost:4000/api/demo/reset",
+    "demo:seed": "curl -X POST http://localhost:4000/api/demo/seed"
   },
   "keywords": [],
   "author": "",

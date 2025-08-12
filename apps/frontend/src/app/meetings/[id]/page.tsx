@@ -320,28 +320,35 @@ export default function MeetingPage() {
       </section>
 
       {/* 候補一覧 + 投票 */}
-      <section>
-        <h2 className="text-lg font-semibold">候補日時</h2>
-        {cands.length === 0 ? (
-          <p className="text-sm text-gray-600 mt-2">候補がまだありません。</p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {cands.map((c) => (
-              <li key={c.start} className="border rounded p-3 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{new Date(c.start).toLocaleString()}</div>
-                  <div className="text-xs text-gray-500">任意参加OK人数: {c.optionalOK}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => prefer(c.start, 'ACCEPT')} className="px-3 py-1 rounded bg-green-600 text-white hover:opacity-90">参加</button>
-                  <button onClick={() => prefer(c.start, 'MAYBE')}  className="px-3 py-1 rounded bg-amber-500 text-white hover:opacity-90">調整可</button>
-                  <button onClick={() => prefer(c.start, 'DECLINE')} className="px-3 py-1 rounded bg-red-600 text-white hover:opacity-90">不可</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {!detail.scheduledAt && (
+        <section>
+          <h2 className="text-lg font-semibold">候補日時</h2>
+          {cands.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-600">候補はまだありません。</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {cands.map((c) => {
+                const t = Date.parse(c.start);
+                if (Number.isNaN(t)) return null; // ← 変な日時は描画スキップ
+                return (
+                  <li key={c.start} className="border rounded p-3 flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{new Date(t).toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">任意参加OK人数: {c.optionalOK}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => prefer(c.start, 'ACCEPT')} className="px-3 py-1 rounded bg-green-600 text-white hover:opacity-90">参加</button>
+                      <button onClick={() => prefer(c.start, 'MAYBE')}  className="px-3 py-1 rounded bg-amber-500 text-white hover:opacity-90">調整可</button>
+                      <button onClick={() => prefer(c.start, 'DECLINE')} className="px-3 py-1 rounded bg-red-600 text-white hover:opacity-90">不可</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
 
       {/* 最終確定（主催者のみ） */}
       {isOrganizer && (
