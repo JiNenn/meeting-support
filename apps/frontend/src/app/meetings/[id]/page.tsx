@@ -180,13 +180,24 @@ export default function MeetingPage() {
   const finalize = async () => {
     if (!confirm('この条件で開催日時を確定します。よろしいですか？')) return;
     try {
-      await getJson(`/api/meetings/finalize/${id}`, { method: 'POST' });
+      const r = await fetch(`${API_BASE}/api/meetings/finalize/${id}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const d = await r.json();
+
       await load();
+
+      if (r.status === 202 && d?.calendarWrite?.reason === 'needs_relink') {
+        alert('日時は確定しましたが、Googleカレンダー連携が切れています。画面右上の「Google連携」から再同意してください。');
+        return;
+      }
       alert('開催日時を確定しました');
     } catch (e: any) {
       alert(`確定に失敗しました: ${e.message ?? e}`);
     }
   };
+
 
   if (loading) return <p className="p-6">loading...</p>;
 

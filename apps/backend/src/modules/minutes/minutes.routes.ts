@@ -3,6 +3,7 @@ import prisma from '@backend/prismaClient';
 import { ensureAuthenticated } from '@backend/middleware/ensureAuthenticated';
 import { requireMeetingMember } from '@backend/middleware/requireMember';
 import { polishText } from '@backend/lib/ai';
+import { getAI } from '@backend/lib/ai.factory';
 
 export const minutesRouter = Router();
 
@@ -22,11 +23,8 @@ minutesRouter.post('/:id/minutes', ensureAuthenticated, requireMeetingMember, as
   const me = (req as any).user?.id as string | undefined;
   const { content } = req.body as { content: string };
 
-  const current = await prisma.minutes.upsert({
-    where: { meetingId },
-    update: {},
-    create: { meetingId, content: '' },
-  });
+  const existing = await prisma.minutes.findUnique({ where: { meetingId } });
+  const current = existing ?? await prisma.minutes.create({ data: { meetingId, content: '' } });
 
   await prisma.minuteEdit.create({
     data: {
@@ -73,6 +71,35 @@ minutesRouter.post('/:id/minutes/polish', ensureAuthenticated, requireMeetingMem
 
   res.json({ updatedAt: updated.updatedAt });
 });
+
+// プロンプトだけ返す
+minutesRouter.post('/:id/minutes/polish/prompt', ensureAuthenticated, requireMeetingMember, async (req, res) => {
+  const meetingId = req.params.id;
+  const m = await prisma.minutes.findUnique({ where: { meetingId } });
+  if (!m) return res.status(404).json({ error:'minutes not found' });
+
+  const ai = getAI();
+  const r  = await ai.polishText(m.content);
+  if (!r.prompt) return res.status(200).json({ mode:'auto', note:'auto mode available' });
+  res.json({ mode:'manual', prompt: r.prompt });
+});
+
+// 手動反映（貼り付け結果を保存）
+minutesRouter.post('/:id/minutes/polish/manual-apply', ensureAuthenticated, requireMeetingMember, async (req, res) => {
+  const meetingId = req.params.id;
+  const me = (req as any).user?.id as string | undefined;
+  const { content } = req.body as { content: string };
+
+  const cur = await prisma.minutes.findUnique({ where: { meetingId } });
+  if (!cur) return res.status(404).json({ error:'minutes not found' });
+
+  await prisma.minuteEdit.create({
+    data: { minutesId: cur.id, authorId: me ?? null, note:'polish-manual', oldText: cur.content, newText: content }
+  });
+  const upd = await prisma.minutes.update({ where: { id: cur.id }, data: { content } });
+  res.json({ updatedAt: upd.updatedAt });
+});
+
 
 /** 口述訂正（テキスト差し込み） */
 minutesRouter.post('/:id/minutes/correct', ensureAuthenticated, requireMeetingMember, async (req, res) => {

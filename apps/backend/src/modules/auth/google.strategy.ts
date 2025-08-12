@@ -1,7 +1,14 @@
 // apps/backend/src/modules/auth/google.strategy.ts
+import type { Request } from 'express';
 import passport from 'passport';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import {
+  Strategy as GoogleStrategy,
+  Profile,
+  VerifyCallback,
+  GoogleCallbackParameters,
+} from 'passport-google-oauth20';
 import prisma from '@backend/prismaClient';
+import { setMemberRefreshToken } from '@backend/lib/googleTokens';
 
 export function initGoogleStrategy() {
   passport.use(new GoogleStrategy(
@@ -9,28 +16,54 @@ export function initGoogleStrategy() {
       clientID: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       callbackURL: process.env.GOOGLE_CALLBACK_URL!,
-      passReqToCallback: true, // ★ 追加
+      passReqToCallback: true,
     },
-    async (req: any, accessToken, refreshToken, profile, done) => {
+    // 正しいシグネチャ：req, accessToken, refreshToken, params, profile, done
+    async (
+      req: Request,
+      accessToken: string,
+      refreshToken: string,                 // 型は string 固定（実際は空文字のことがある）
+      _params: GoogleCallbackParameters,    // 使わなくても受け取る
+      profile: Profile,
+      done: VerifyCallback
+    ) => {
       try {
-        const isLink = req.query.state === 'link'; // ★ /auth/google/link から来たか？
+        const isLink = req.query.state === 'link';
 
-        if (isLink && req.user) {
-          // 既存ユーザー（devなど）にトークンを保存
-          const user = await prisma.member.update({
-            where: { id: req.user.id },
-            data: { googleAccess: accessToken, googleRefresh: refreshToken ?? null },
+        // Express.User は任意型なので実行時に id の有無をチェック
+        const authUser = (req.user as { id?: string } | undefined);
+        const rt = refreshToken || undefined; // 空文字対策
+
+        if (isLink && authUser?.id) {
+          const updated = await prisma.member.update({
+            where: { id: authUser.id },
+            data: {
+              googleAccess: accessToken,
+              ...(rt ? { googleRefresh: rt } : {}),
+            },
           });
-          return done(null, user);
+          if (rt) await setMemberRefreshToken(updated.id, rt);
+          return done(null, updated);
         }
 
-        // 通常ログイン：メールで upsert
-        const email = profile.emails?.[0].value ?? '';
+        const email = profile.emails?.[0]?.value?.toLowerCase() ?? '';
+        if (!email) return done(new Error('Google profile has no email'));
+
         const user = await prisma.member.upsert({
           where: { email },
-          update: { googleAccess: accessToken, googleRefresh: refreshToken ?? null },
-          create: { email, roleLog: [], googleAccess: accessToken, googleRefresh: refreshToken ?? null },
+          update: {
+            googleAccess: accessToken,
+            ...(rt ? { googleRefresh: rt } : {}),
+          },
+          create: {
+            email,
+            roleLog: [],
+            googleAccess: accessToken,
+            ...(rt ? { googleRefresh: rt } : {}),
+          },
         });
+
+        if (rt) await setMemberRefreshToken(user.id, rt);
         return done(null, user);
       } catch (e) {
         return done(e as Error);
@@ -40,7 +73,12 @@ export function initGoogleStrategy() {
 
   passport.serializeUser((user: any, done) => done(null, user.id));
   passport.deserializeUser(async (id: string, done) => {
-    const user = await prisma.member.findUnique({ where: { id } });
-    done(null, user);
+    try {
+      const user = await prisma.member.findUnique({ where: { id } });
+      done(null, user);
+    } catch (e) {
+      done(e as Error);
+    }
   });
 }
+

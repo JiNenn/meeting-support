@@ -81,20 +81,19 @@ tasksRouter.patch('/:id/tasks/:taskId', ensureAuthenticated, requireMeetingMembe
 });
 
 /** Google Tasks へ送信（ワンクリック） */
+// apps/backend/src/modules/tasks/tasks.routes.ts
 tasksRouter.post('/:id/tasks/:taskId/push', ensureAuthenticated, requireMeetingMember, async (req, res) => {
-  const { taskId } = req.params;
   try {
-    const result = await pushTaskToGoogle(taskId);
-    if (!result.ok && result.reason === 'no_token') {
-      return res.status(202).json({ ok: false, reason: 'assignee_has_no_google_token' });
+    const r = await pushTaskToGoogle(req.params.taskId);
+    if (r.ok) return res.json(r);
+    if (r.reason === 'needs_relink') {
+      // 428: 前提条件不足（再同意が必要）
+      return res.status(428).json({ error: 'needs_relink', who: r.who });
     }
-    return res.json(result);
+    return res.status(502).json({ error: 'push_failed' });
   } catch (e: any) {
-    const msg =
-      e?.response?.data?.error?.message || // Google API の典型
-      e?.errors?.[0]?.message ||
-      e?.message || String(e);
-    console.error('[tasks.push] error', e?.response?.data || e);
+    const msg = e?.response?.data?.error?.message || e?.message || String(e);
     return res.status(502).json({ error: msg });
   }
 });
+

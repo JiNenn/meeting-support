@@ -25,4 +25,5 @@ jobs:
       - run: npx prisma migrate deploy --schema apps/backend/prisma/schema.prisma
       - run: npm run -w apps/backend build
       - run: npm run -w apps/frontend build
+      - run: npm run -w apps/backend test
       # Jest / Playwright を後で追加

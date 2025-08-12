@@ -3,6 +3,9 @@ import express from 'express';
 import session from 'express-session';
 import passport from 'passport';
 import cors from 'cors';
+import helmet from 'helmet';
+import hpp from 'hpp';
+import rateLimit from 'express-rate-limit';
 
 import { initGoogleStrategy } from './modules/auth/google.strategy';
 import { authRouter } from './modules/auth/auth.routes';
@@ -12,11 +15,26 @@ import { minutesRouter } from './modules/minutes/minutes.routes';
 import { tasksRouter } from './modules/tasks/tasks.routes';
 import { roleBootstrapRouter } from './modules/members/roleBootstrap.routes';
 import { registerAgendaRefreshJob } from './jobs/agendaRefresh.job';
+
 import { shareRouter } from './modules/share/share.routes';
+import { debugRouter } from './modules/debug/debug.routes';
+import { statusRouter } from './modules/system/status.routes';
+import { pdfRouter } from './modules/export/pdf.routes';
 
 const app = express();
 initGoogleStrategy();
 
+app.set('trust proxy', 1);
+app.use(helmet());
+app.use(hpp());
+
+const limiter = rateLimit({
+  windowMs: 15*60*1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
 
 /* 0) CORS は一番上で */
 app.use(cors({
@@ -50,6 +68,7 @@ agendaRouter.use((req, _res, next) => {
   next();
 });
 
+
 // apps/backend/src/modules/minutes/minutes.routes.ts 冒頭
 minutesRouter.use((req, _res, next) => {
   console.log('[minutes]', req.method, req.originalUrl);
@@ -65,8 +84,25 @@ app.use('/api/meetings', tasksRouter);
 app.use('/api/members', roleBootstrapRouter);
 app.use('/api/meetings', shareRouter);
 app.use('/api', shareRouter);
+app.use('/api', debugRouter);
+app.use('/api', statusRouter);
+app.use('/api/meetings', pdfRouter);
+
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 /* デバッグ（任意） */
 app.use((req, _res, next) => { console.log('AFTER PASSPORT user=', (req as any).user?.id); next(); });
 
-app.listen(4000, () => console.log('Backend listening on :4000'));
+app.use((err: any, _req: any, res: any, _next: any) => {
+  console.error('[unhandled]', err);
+  res.status(500).json({ error: 'internal_error' });
+});
+
+const port = Number(process.env.PORT ?? 4000);
+const server = app.listen(port, () => console.log(`Backend listening on :${port}`));
+process.on('SIGTERM', () => server.close(() => process.exit(0)));
+process.on('SIGINT',  () => server.close(() => process.exit(0)));

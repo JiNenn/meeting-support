@@ -31,15 +31,32 @@ export default function TasksPage() {
     else alert('作成失敗');
   };
 
-  const push = async (taskId:string) => {
+  const push = async (taskId: string) => {
     const r = await fetch(`${API}/api/meetings/${id}/tasks/${taskId}/push`, {
-      method:'POST', credentials:'include'
+      method: 'POST', credentials: 'include'
     });
     const text = await r.text();
+
     if (r.status === 202) return alert('担当者に Google トークンが無いためスキップしました');
-    if (!r.ok) return alert(`Push 失敗: ${text}`);
+
+    if (!r.ok) {
+      try {
+        const j = JSON.parse(text);
+        if (j?.error === 'needs_relink') {
+          const who = j.who ?? 'unknown';
+          const msg =
+            who === 'assignee' ? '担当者の Google 連携が切れています。担当者で「Google連携（再同意）」を実行してください。'
+          : who === 'organizer' ? '主催者の Google 連携が切れています。主催者で「Google連携（再同意）」を実行してください。'
+          : 'Google 連携が切れています。右上の「Google連携」から再同意してください。';
+          return alert(msg);
+        }
+      } catch {}
+      return alert(`Push 失敗: ${text}`);
+    }
+
     alert('Google Tasks に追加しました');
   };
+
 
   const toggleDone = async (task:Task) => {
     const r = await fetch(`${API}/api/meetings/${id}/tasks/${task.id}`, {

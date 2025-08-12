@@ -63,6 +63,8 @@ model Meeting {
   scheduledAt DateTime?
   organizerId String
   organizer   Member          @relation("OrganizerMeetings", fields: [organizerId], references: [id])
+  durationMinutes Int     @default(60)
+  
   members     MeetingMember[]
   agenda      Agenda?         @relation("MeetingAgenda")
 
@@ -191,6 +193,7 @@ model Minutes {
   meeting   Meeting      @relation("MeetingMinutes", fields: [meetingId], references: [id])
   content   String // Markdown/プレーンテキスト
   edits     MinuteEdit[]
+  finalizedAt DateTime?
   updatedAt DateTime     @updatedAt
   createdAt DateTime     @default(now())
 }

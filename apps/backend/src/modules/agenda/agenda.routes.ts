@@ -5,6 +5,7 @@ import { requireMeetingMember } from '@backend/middleware/requireMember';
 import { suggestConcise, generatePreQuestions } from '@backend/lib/ai';
 import { notifyMember } from '@backend/modules/notification';
 import { autoRefreshAgenda } from './agenda.service'; 
+import { getAI } from '@backend/lib/ai.factory';
 
 export const agendaRouter = Router();
 
@@ -88,22 +89,47 @@ agendaRouter.get('/:id/agenda/diff', ensureAuthenticated, requireMeetingMember, 
   res.json({ revisions });
 });
 
-/** 本音ボタン — 要約提案を返す（反映は別エンドポイントで） */
+
+// ① プロンプト or 自動案を返す
 agendaRouter.post('/:id/honest', ensureAuthenticated, requireMeetingMember, async (req, res) => {
   const meetingId = req.params.id;
   const me = (req as any).user.id as string;
   const { message } = req.body as { message: string };
 
-  const suggested = await suggestConcise(message);
+  const ai = getAI();
+  const r  = await ai.suggestConcise(message);
+
+  if (r.prompt) {
+    // manualモード：DBに下書きスレッドだけ作る
+    const thread = await prisma.honestThread.create({
+      data: { meetingId, memberId: me, messages: [{ role:'user', content: message }], suggestedText: null, status: 'OPEN' }
+    });
+    return res.status(200).json({ mode:'manual', threadId: thread.id, prompt: r.prompt });
+  }
+
+  // auto/オフ：従来の suggestedText
   const thread = await prisma.honestThread.create({
-    data: {
-      meetingId, memberId: me,
-      messages: [{ role: 'user', content: message }],
-      suggestedText: suggested, status: 'OPEN',
-    },
+    data: { meetingId, memberId: me, messages: [{ role:'user', content: message }], suggestedText: r.output ?? '', status: 'OPEN' }
   });
-  res.status(201).json({ threadId: thread.id, suggestedText: suggested });
+  res.status(201).json({ mode:'auto', threadId: thread.id, suggestedText: r.output });
 });
+
+// ② 手動反映（LLM結果を貼付）
+agendaRouter.post('/:id/honest/:threadId/manual-apply', ensureAuthenticated, requireMeetingMember, async (req, res) => {
+  const meetingId = req.params.id;
+  const { threadId } = req.params;
+  const { text } = req.body as { text: string };
+
+  const agenda = await prisma.agenda.upsert({ where:{meetingId}, update:{}, create:{meetingId} });
+  await prisma.agendaItem.create({ data: { agendaId: agenda.id, text, status: 'OPEN', sortOrder: 0 } });
+
+  const snapshot = await prisma.agendaItem.findMany({ where: { agendaId: agenda.id }, orderBy:[{sortOrder:'asc'},{createdAt:'asc'}] });
+  await prisma.agendaRevision.create({ data: { agendaId: agenda.id, snapshot, note: 'honest manual apply' } });
+  await prisma.honestThread.update({ where: { id: threadId }, data: { status: 'APPLIED', suggestedText: text } });
+
+  res.json({ ok:true });
+});
+
 
 /** 本音ボタン — 提案をアジェンダに反映 */
 agendaRouter.post('/:id/honest/:threadId/apply', ensureAuthenticated, requireMeetingMember, async (req, res) => {

@@ -11,6 +11,10 @@ export default function AgendaPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [text, setText] = useState('');
   const [err, setErr] = useState('');
+  const [openHonest, setOpenHonest] = useState(false);
+  const [honestText, setHonestText] = useState('');
+  const [honestPrompt, setHonestPrompt] = useState<string>('');
+  const [honestThreadId, setHonestThreadId] = useState<string>('');
 
   const load = async () => {
     try {
@@ -62,6 +66,36 @@ export default function AgendaPage() {
     alert('アジェンダを自動更新しました');
   };
 
+  const sendHonest = async () => {
+    const r = await fetch(`${API}/api/meetings/${id}/honest`, {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: honestText }),
+    });
+    const d = await r.json();
+    if (d.mode === 'manual') {
+      setHonestThreadId(d.threadId);
+      setHonestPrompt(d.prompt);
+    } else {
+      // 従来：自動案をそのまま反映
+      await fetch(`${API}/api/meetings/${id}/honest/${d.threadId}/apply`, { method:'POST', credentials:'include' });
+      setOpenHonest(false); setHonestText(''); setHonestPrompt(''); setHonestThreadId('');
+      await load();
+    }
+  };
+
+  const applyHonestManual = async () => {
+    const pasted = (document.getElementById('honestResult') as HTMLTextAreaElement)?.value ?? '';
+    if (!pasted.trim()) return alert('結果を貼り付けてください');
+    await fetch(`${API}/api/meetings/${id}/honest/${honestThreadId}/manual-apply`, {
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text: pasted }),
+    });
+    setOpenHonest(false); setHonestText(''); setHonestPrompt(''); setHonestThreadId('');
+    await load();
+  };
+
   if (err) {
     return <div style={{padding:24}}>
       <h2>取得失敗</h2>
@@ -76,13 +110,42 @@ export default function AgendaPage() {
       <div style={{display:'flex', gap:8, marginTop:12}}>
         <input value={text} onChange={e=>setText(e.target.value)} placeholder="議題を追加" style={{flex:1}}/>
         <button onClick={add}>追加</button>
-        <button onClick={honest}>本音ボタン</button>
+        <button onClick={() => setOpenHonest(true)}>本音ボタン</button>
         <button onClick={sendPreQ}>事前質問を送る</button>
         <button onClick={refreshNow}>今すぐ更新</button>
       </div>
       <ul style={{marginTop:16}}>
         {items.map(i => <li key={i.id}>• {i.text} <small>[{i.status}]</small></li>)}
       </ul>
+
+      {openHonest && (
+        <div /* 省略: 背景と枠 */>
+          <div>
+            <h3>本音相談</h3>
+            {!honestPrompt ? (
+              <>
+                <textarea rows={6} value={honestText} onChange={e=>setHonestText(e.target.value)} style={{width:'100%'}} />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={sendHonest}>プロンプト生成</button>
+                  <button onClick={()=>setOpenHonest(false)}>閉じる</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600">このプロンプトを ChatGPT 等に貼って実行し、結果を下に貼り付けてください。</p>
+                <pre className="bg-gray-100 p-2 text-sm" style={{whiteSpace:'pre-wrap'}}>{honestPrompt}</pre>
+                <button onClick={()=>navigator.clipboard?.writeText(honestPrompt)}>コピー</button>
+                <textarea id="honestResult" rows={6} className="mt-2" style={{width:'100%'}} placeholder="ここに結果を貼り付け" />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={applyHonestManual}>反映する</button>
+                  <button onClick={()=>{ setHonestPrompt(''); setHonestThreadId(''); }}>戻る</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+
 }

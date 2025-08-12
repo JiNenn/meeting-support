@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import passport from 'passport';
-import prisma from '@backend/prismaClient';           // ① 追加
+import prisma from '@backend/prismaClient'; 
+import { getMemberRefreshToken } from '@backend/lib/googleTokens';
 
 export const authRouter = Router();
 
@@ -52,9 +53,13 @@ authRouter.get('/mock', async (req, res, next) => {
 });
 
 
-authRouter.get('/status', (req, res) =>
-  res.json({ user: (req as any).user ?? null })
-);
+authRouter.get('/status', async (req, res) => {
+  const user = (req as any).user ?? null;
+  if (!user) return res.json({ user: null });
+  const hasAny = (await getMemberRefreshToken(user.id)) != null;
+  res.json({ user, providers: { google: { needsRelink: !hasAny } } });
+});
+
 
 
 

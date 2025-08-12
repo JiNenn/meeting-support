@@ -81,6 +81,23 @@ export default function MinutesPage() {
     if (r.ok) { await load(); }
   };
 
+  const promptPolish = async () => {
+    const r = await fetch(`${API}/api/meetings/${id}/minutes/polish/prompt`, { method:'POST', credentials:'include' });
+    const d = await r.json();
+    if (d.prompt) {
+      await navigator.clipboard?.writeText(d.prompt);
+      const res = prompt('プロンプトをコピーしました。LLMの出力結果をここに貼ってください:');
+      if (!res) return;
+      const r2 = await fetch(`${API}/api/meetings/${id}/minutes/polish/manual-apply`, {
+        method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ content: res }),
+      });
+      if (r2.ok) { await load(); alert('反映しました'); }
+    } else {
+      alert('自動モード有効（LLM_MODE≠manual）');
+    }
+  };
+
   if (err) {
     return <div style={{padding:24}}>
       <h2>取得失敗</h2>
@@ -97,6 +114,7 @@ export default function MinutesPage() {
       <div style={{display:'flex', gap:8}}>
         <button onClick={upload}>アップロード</button>
         <button onClick={polish}>AIでブラッシュアップ</button>
+        <button onClick={promptPolish}>AI整形（手動実行）</button>
         <button onClick={correct}>訂正を追加</button>
       </div>
 

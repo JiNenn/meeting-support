@@ -1,5 +1,7 @@
 import prisma from '@backend/prismaClient';
 import { google } from 'googleapis';
+import { isInvalidGrant } from '@backend/lib/googleErrors';
+import { getMemberRefreshToken, clearMemberRefreshToken } from '@backend/lib/googleTokens';
 
 function oauthFromRefresh(refresh: string) {
   const o = new google.auth.OAuth2(
@@ -24,6 +26,9 @@ export async function upsertMeetingEvent(meetingId: string) {
   // 主催者のトークン
   if (!m.organizer.googleRefresh) return { ok:false as const, reason:'no_token' as const };
 
+  const refresh = await getMemberRefreshToken(m.organizerId);
+  if (!refresh) return { ok:false as const, reason:'no_token' as const };
+
   const auth = oauthFromRefresh(m.organizer.googleRefresh);
   const cal = google.calendar({ version: 'v3', auth });
 
@@ -37,7 +42,7 @@ export async function upsertMeetingEvent(meetingId: string) {
 
   // 60分会議にしておく（必要なら duration を別で持つ）
   const start = new Date(m.scheduledAt);
-  const end   = new Date(start); end.setMinutes(end.getMinutes() + 60);
+  const end   = new Date(start.getTime() + (m.durationMinutes ?? 60)*60000); // ★
 
   const payload = {
     summary: `【会議】${m.title}`,

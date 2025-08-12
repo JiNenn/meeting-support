@@ -5,28 +5,28 @@ import { sendMeetingNotification } from '@backend/modules/notification/gmail.ser
 import { upsertMeetingEvent } from '@backend/modules/schedule/calendarWrite.service';
 import { audit } from '@backend/lib/audit';
 
-// 既存 createMeeting ---------------------------------
+// ───────── createMeeting ─────────
 export const createMeeting = async (req: Request, res: Response) => {
-  console.log('BODY', req.body);     // ← 追加
-  console.log('USER', req.user);     // ← 追加
+  console.log('BODY', req.body);
+  console.log('USER', req.user);
   const { title, purpose } = req.body;
   const organizerId = (req.user as any).id;
 
   const meeting = await prisma.meeting.create({
-    data: {
-      title, purpose, organizerId
-    },
+    data: { title, purpose, organizerId },
   });
+
   await prisma.meetingMember.upsert({
     where: { meetingId_memberId: { meetingId: meeting.id, memberId: organizerId } },
     update: { role: 'REQUIRED' },
     create: { meetingId: meeting.id, memberId: organizerId, role: 'REQUIRED' },
   });
-  await audit(req, meeting.id, 'MEETING_CREATE', { title: meeting.title, purpose: meeting.purpose });
 
+  await audit(req, meeting.id, 'MEETING_CREATE', { title: meeting.title, purpose: meeting.purpose });
   res.status(201).json(meeting);
 };
 
+// ───────── getMeeting ─────────
 export const getMeeting = async (req: Request, res: Response) => {
   const id = req.params.id;
   const m = await prisma.meeting.findUnique({
@@ -57,12 +57,11 @@ export const getMeeting = async (req: Request, res: Response) => {
   });
 };
 
-
+// ───────── finalizeMeeting ─────────
 export const finalizeMeeting = async (req: Request, res: Response) => {
   const meetingId = req.params.id;
-  const { id } = req.params;
 
-  /* ❶ preference 集計 */
+  // ❶ preference 集計
   const prefs = await prisma.meetingMember.findMany({
     where: { meetingId, preferredStart: { not: null } },
     select: { preferredStart: true, preference: true },
@@ -78,45 +77,75 @@ export const finalizeMeeting = async (req: Request, res: Response) => {
   const [bestISO] = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
   const bestDate = new Date(bestISO);
 
-  /* ❷ Meeting を更新 */
-  const meeting = await prisma.meeting.update({
+  // ❷ Meeting.scheduledAt を更新（※二重 update を排除）
+  const updated = await prisma.meeting.update({
     where: { id: meetingId },
     data:  { scheduledAt: bestDate },
   });
 
-  /* ❸ 必須参加者へ通知 */
+  // ❸ 必須参加者へ通知
   const participants = await prisma.meetingMember.findMany({
     where: { meetingId, role: 'REQUIRED' },
-  });
-  const updated = await prisma.meeting.update({
-    where: { id },
-    data: { /* 既存の scheduledAt 設定処理があるなら残す */ },
   });
   await Promise.all(
     participants.map(p =>
       sendMeetingNotification(
         p.memberId,
-        `会議日程確定: ${meeting.title}`,
-        `日時: ${bestDate.toLocaleString()}\n目的: ${meeting.purpose}`,
+        `会議日程確定: ${updated.title}`,
+        `日時: ${bestDate.toLocaleString()}\n目的: ${updated.purpose}`,
       ),
     ),
   );
-  await audit(req, id, 'MEETING_FINALIZE', { scheduledAt: new Date().toISOString() });
-  await audit(req, id, 'MEETING_FINALIZE', { scheduledAt: updated.scheduledAt });
 
-  // ★ カレンダー書き込み（環境変数で有効化）
+  await audit(req, meetingId, 'MEETING_FINALIZE', { scheduledAt: updated.scheduledAt });
+
+  // 事前に型を上で定義
+  type CalWrite =
+    | { ok: true; eventId?: string; htmlLink?: string }
+    | { ok: false; reason: 'needs_relink' | 'skipped' | 'error' | 'no_token'; message?: string };
+
+  let calendarWrite: CalWrite = { ok: false, reason: 'skipped' };
+
   if (process.env.CALENDAR_WRITE === 'true') {
     try {
-      const result = await upsertMeetingEvent(id);
-      if (result.ok) {
-        await audit(req, id, 'MEETING_FINALIZE', { googleEventId: result.eventId, htmlLink: result.htmlLink });
+      const result = await upsertMeetingEvent(meetingId);
+
+      // サービス側が 'no_token' を返す実装でも、外向きは 'needs_relink' に正規化
+      if (!result.ok && result.reason === 'no_token') {
+        calendarWrite = { ok: false, reason: 'needs_relink' };
       } else {
-        await audit(req, id, 'MEETING_FINALIZE', { calendarWrite: 'skipped', reason: result.reason });
+        calendarWrite = result as CalWrite;
+      }
+
+      console.log('[calendarWrite] result:', calendarWrite);
+
+      if (calendarWrite.ok) {
+        await audit(req, meetingId, 'MEETING_FINALIZE', {
+          googleEventId: calendarWrite.eventId,
+          htmlLink: calendarWrite.htmlLink,
+        });
+      } else if (calendarWrite.reason === 'needs_relink') {
+        await audit(req, meetingId, 'MEETING_FINALIZE', { calendarWrite: 'needs_relink' });
+      } else {
+        await audit(req, meetingId, 'MEETING_FINALIZE', {
+          calendarWrite: 'skipped',
+          // reason は 'skipped' | 'error' | 'needs_relink'
+          reason: calendarWrite.reason,
+          message: 'message' in calendarWrite ? calendarWrite.message : undefined,
+        });
       }
     } catch (e: any) {
-      await audit(req, id, 'MEETING_FINALIZE', { calendarWrite: 'error', message: e?.message ?? String(e) });
+      calendarWrite = { ok: false, reason: 'error', message: e?.message ?? String(e) };
+      await audit(req, meetingId, 'MEETING_FINALIZE', {
+        calendarWrite: 'error',
+        message: calendarWrite.message,
+      });
     }
   }
 
-  res.json({ scheduledAt: bestDate });
+// ↓この後のレスポンス分岐も忘れず（needs_relink/no_token は 202）
+  if (!calendarWrite.ok && (calendarWrite.reason === 'needs_relink' || calendarWrite.reason === 'no_token')) {
+    return res.status(202).json({ scheduledAt: updated.scheduledAt, calendarWrite });
+  }
+  return res.status(200).json({ scheduledAt: updated.scheduledAt, calendarWrite })
 };
