@@ -4,16 +4,27 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:migrate": "prisma migrate dev --schema apps/backend/prisma/schema.prisma --name",
+    "db:generate": "prisma generate --schema apps/backend/prisma/schema.prisma"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@types/json-schema": "^7.0.15",
+    "@types/keygrip": "^1.0.6",
     "eslint": "^9.32.0",
     "prettier": "^3.6.2",
     "turbo": "^2.5.5",
     "typescript": "^5.8.3"
-  }
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "packageManager": "npm@10"
 }

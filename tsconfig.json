@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    /* 基本ターゲット */
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+
+    /* パス解決 */
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@backend/*": ["apps/backend/src/*"],
+      "@frontend/*": ["apps/frontend/src/*"]
+    },
+
+    /* ★ ここが今回のポイント */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    /* 品質系 */
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    /* 出力先 (バックエンドだけ使うなら不要) */
+    "outDir": "dist"
+  },
+  "include": ["apps/**/*"]
+}

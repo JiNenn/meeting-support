@@ -1,0 +1,54 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/src/generated/prisma
+
+.env.example
+
+.next/
+out/
+
+# Build output
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env files
+.env
+.env*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Coverage reports
+coverage/
+
+# Temporary
+*.tmp
+*.temp
+
+# secrets
+.env
+.env*.local
+apps/backend/.env
+apps/frontend/.env.local
+apps/backend/keys/*.json
+*.pem
+*.p12
+
+keys\service-account.json

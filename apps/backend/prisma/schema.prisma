@@ -1,0 +1,278 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum AgendaItemStatus {
+  OPEN
+  DECIDED
+  PARKING
+}
+
+model MeetingMember {
+  meetingId      String
+  memberId       String
+  role           String
+  preference     String?
+  preferredStart DateTime?
+  meeting        Meeting   @relation(fields: [meetingId], references: [id])
+  member         Member    @relation(fields: [memberId], references: [id])
+
+  @@id([meetingId, memberId])
+}
+
+model Member {
+  id       String          @id @default(cuid())
+  email    String          @unique
+  roleLog  Json
+  meetings MeetingMember[]
+
+  // 既存の Google トークン列がある前提（なければ維持）
+  googleAccess  String?
+  googleRefresh String?
+
+  // Organizer としての 1:N
+  organizedMeetings Meeting[] @relation("OrganizerMeetings")
+
+  // 自分が書いたアジェンダ項目／議事メモ編集
+  authoredItems AgendaItem[] @relation("MemberAuthoredItems")
+  minuteEdits   MinuteEdit[] @relation("MemberMinuteEdits")
+
+  // ★ 追加：自分が担当のタスク（リレーション名を Task 側と一致させる）
+  tasks        Task[]         @relation("MemberTaskAssignee")
+  HonestThread HonestThread[]
+  PreQuestion  PreQuestion[]
+  AuditLog     AuditLog[]
+  ShareLink    ShareLink[]
+
+  acks MeetingAck[] @relation("Member_Acks")
+}
+
+model Meeting {
+  id              String    @id @default(cuid())
+  title           String
+  purpose         String
+  scheduledAt     DateTime?
+  organizerId     String
+  organizer       Member    @relation("OrganizerMeetings", fields: [organizerId], references: [id])
+  durationMinutes Int       @default(60)
+
+  members MeetingMember[]
+  agenda  Agenda?         @relation("MeetingAgenda")
+
+  googleEventId String?
+
+  minutes   Minutes? @relation("MeetingMinutes")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ★ 追加：Meeting に紐づくタスクの逆参照
+  tasks        Task[]
+  HonestThread HonestThread[]
+  PreQuestion  PreQuestion[]
+  AuditLog     AuditLog[]
+  ShareLink    ShareLink[]
+
+  acks MeetingAck[] @relation("Meeting_Acks")
+
+  @@index([organizerId])
+}
+
+model Task {
+  id String @id @default(cuid())
+
+  // Meeting への必須外部キー（会議削除でタスクも削除）
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // 担当者（任意）
+  assigneeId String?
+  assignee   Member? @relation("MemberTaskAssignee", fields: [assigneeId], references: [id])
+
+  title       String
+  description String?
+  due         DateTime?
+  mandatory   Boolean   @default(false)
+
+  // Google Tasks 連携（任意）
+  googleTaskId     String?
+  googleTaskListId String?
+
+  status    TaskStatus @default(OPEN)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([meetingId, assigneeId, status])
+}
+
+model Agenda {
+  id        String           @id @default(cuid())
+  meetingId String           @unique
+  meeting   Meeting          @relation("MeetingAgenda", fields: [meetingId], references: [id])
+  items     AgendaItem[]
+  revisions AgendaRevision[]
+  updatedAt DateTime         @updatedAt
+  createdAt DateTime         @default(now())
+}
+
+model AgendaItem {
+  id       String @id @default(cuid())
+  agendaId String
+  agenda   Agenda @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  author   Member? @relation("MemberAuthoredItems", fields: [authorId], references: [id])
+
+  text      String
+  status    AgendaItemStatus @default(OPEN)
+  sortOrder Int              @default(0)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([agendaId, sortOrder])
+}
+
+model AgendaRevision {
+  id        String   @id @default(cuid())
+  agendaId  String
+  agenda    Agenda   @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+  snapshot  Json // 現在の items のスナップショット（差分UI用に簡易）
+  note      String?
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  @@index([agendaId, createdAt])
+}
+
+model HonestThread {
+  id String @id @default(cuid())
+
+  // ★ Meeting / Member への外部キー化
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  messages      Json
+  suggestedText String?
+  status        String   @default("OPEN") // OPEN | APPLIED | DISCARDED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([meetingId, memberId, status])
+}
+
+model PreQuestion {
+  id String @id @default(cuid())
+
+  // ★ Meeting / Member への外部キー化
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  toMemberId String
+  toMember   Member @relation(fields: [toMemberId], references: [id], onDelete: Cascade)
+
+  question  String
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([meetingId])
+  @@index([toMemberId]) // ★ 受信者での絞り込み用
+}
+
+model Minutes {
+  id          String       @id @default(cuid())
+  meetingId   String       @unique
+  meeting     Meeting      @relation("MeetingMinutes", fields: [meetingId], references: [id])
+  content     String // Markdown/プレーンテキスト
+  edits       MinuteEdit[]
+  finalizedAt DateTime?
+  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime     @default(now())
+}
+
+model MinuteEdit {
+  id        String   @id @default(cuid())
+  minutesId String
+  minutes   Minutes  @relation(fields: [minutesId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    Member?  @relation("MemberMinuteEdits", fields: [authorId], references: [id])
+  note      String? // 口述訂正内容など
+  oldText   String
+  newText   String
+  createdAt DateTime @default(now())
+
+  @@index([minutesId, createdAt])
+}
+
+enum AuditAction {
+  MEETING_CREATE
+  MEMBER_INVITE
+  MEMBER_ROLE_UPDATE
+  MEMBER_REMOVE
+  PREFERENCE_SET
+  MEETING_FINALIZE
+  MEETING_AUTO_FINALIZE
+  MEETING_ACK
+  AGENDA_ITEM_UPDATE
+  HONEST_APPLY
+  MINUTES_UPLOAD
+  MINUTES_POLISH
+  MINUTES_CORRECT
+  TASK_CREATE
+  TASK_UPDATE
+  TASK_PUSH
+  SHARE_ISSUE
+  SHARE_REVOKE
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  meetingId String
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     Member?     @relation(fields: [actorId], references: [id])
+  action    AuditAction
+  detail    Json?
+  createdAt DateTime    @default(now())
+
+  @@index([meetingId, createdAt])
+}
+
+model ShareLink {
+  id        String    @id @default(cuid())
+  meetingId String
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime?
+  createdBy String
+  creator   Member    @relation(fields: [createdBy], references: [id])
+  createdAt DateTime  @default(now())
+
+  @@index([meetingId])
+}
+
+model MeetingAck {
+  meetingId String
+  memberId  String
+  readAt    DateTime?
+  agreedAt  DateTime?
+
+  // ★ 両側のリレーション名を厳密一致
+  meeting Meeting @relation("Meeting_Acks", fields: [meetingId], references: [id], onDelete: Cascade)
+  member  Member  @relation("Member_Acks", fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([meetingId, memberId])
+  @@index([meetingId])
+}

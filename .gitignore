@@ -1,0 +1,5 @@
+node_modules
+
+/apps/backend/keys/*.json
+
+**/.next/
