@@ -2,6 +2,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import * as Diff from 'diff';
+import ManualAIMinutes from '@/components/ManualAIminutes';
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:4000';
 
@@ -34,6 +35,7 @@ export default function MinutesPage() {
   const [updatedAt, setUpdatedAt] = useState<string>('');
   const [edits, setEdits] = useState<Edit[]>([]);
   const [err, setErr] = useState('');
+  const [showManual, setShowManual] = useState(false); // ★ 手動AIモーダル
 
   const load = async () => {
     try {
@@ -51,7 +53,7 @@ export default function MinutesPage() {
     } catch (e:any) { setErr(String(e.message ?? e)); }
   };
 
-  useEffect(()=>{ load(); }, [id]);
+  useEffect(()=>{ load(); /* eslint-disable-next-line react-hooks/exhaustive-deps*/ }, [id]);
 
   const upload = async () => {
     const r = await fetch(`${API}/api/meetings/${id}/minutes`, {
@@ -81,22 +83,7 @@ export default function MinutesPage() {
     if (r.ok) { await load(); }
   };
 
-  const promptPolish = async () => {
-    const r = await fetch(`${API}/api/meetings/${id}/minutes/polish/prompt`, { method:'POST', credentials:'include' });
-    const d = await r.json();
-    if (d.prompt) {
-      await navigator.clipboard?.writeText(d.prompt);
-      const res = prompt('プロンプトをコピーしました。LLMの出力結果をここに貼ってください:');
-      if (!res) return;
-      const r2 = await fetch(`${API}/api/meetings/${id}/minutes/polish/manual-apply`, {
-        method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ content: res }),
-      });
-      if (r2.ok) { await load(); alert('反映しました'); }
-    } else {
-      alert('自動モード有効（LLM_MODE≠manual）');
-    }
-  };
+  // ★ 旧: promptPolish はモーダルUIに置き換えたので削除
 
   if (err) {
     return <div style={{padding:24}}>
@@ -114,7 +101,8 @@ export default function MinutesPage() {
       <div style={{display:'flex', gap:8}}>
         <button onClick={upload}>アップロード</button>
         <button onClick={polish}>AIでブラッシュアップ</button>
-        <button onClick={promptPolish}>AI整形（手動実行）</button>
+        {/* ★ 見える化ボタン：モーダルで 3クリック導線 */}
+        <button onClick={() => setShowManual(true)}>AI整形（手動）</button>
         <button onClick={correct}>訂正を追加</button>
       </div>
 
@@ -130,8 +118,6 @@ export default function MinutesPage() {
               <div style={{ marginTop: 6 }}>
                 <DiffView oldText={e.oldText} newText={e.newText} />
               </div>
-
-              {/* ←任意：従来の「旧/新」も残したい場合は下を残す */}
               <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
                 <div><b>旧:</b><pre style={{ whiteSpace: 'pre-wrap' }}>{e.oldText}</pre></div>
                 <div><b>新:</b><pre style={{ whiteSpace: 'pre-wrap' }}>{e.newText}</pre></div>
@@ -140,6 +126,16 @@ export default function MinutesPage() {
           </li>
         ))}
       </ul>
+
+      {/* ★ 手動AIモーダル：開くたびに prompt を取得し、貼付→反映 */}
+      <ManualAIMinutes
+        open={showManual}
+        onClose={() => setShowManual(false)}
+        meetingId={String(id)}
+        sourceText={text}
+        onApplied={() => load()}
+      />
     </div>
   );
 }
+

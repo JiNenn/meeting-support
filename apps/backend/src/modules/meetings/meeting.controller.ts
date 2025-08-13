@@ -30,6 +30,7 @@ export const createMeeting = async (req: Request, res: Response) => {
 // ───────── getMeeting ─────────
 export const getMeeting = async (req: Request, res: Response) => {
   const id = req.params.id;
+
   const m = await prisma.meeting.findUnique({
     where: { id },
     include: {
@@ -40,9 +41,10 @@ export const getMeeting = async (req: Request, res: Response) => {
       },
     },
   });
-  if (!m) return res.status(404).json({ error: 'not found' });
+  if (!m) return res.status(404).json({ error: 'not_found' });
 
-  res.json({
+  // 基本の返却オブジェクト
+  const payload: any = {
     id: m.id,
     title: m.title,
     purpose: m.purpose,
@@ -55,7 +57,31 @@ export const getMeeting = async (req: Request, res: Response) => {
       preference: mm.preference,
       preferredStart: mm.preferredStart,
     })),
-  });
+    myAck: null as null | { readAt: Date | null; agreedAt: Date | null },
+  };
+
+  // 自分の既読/同意を付加（未ログインなら null のまま）
+  const me = (req as any).user?.id as string | undefined;
+  if (me) {
+    const myAck = await prisma.meetingAck.findUnique({
+      where: { meetingId_memberId: { meetingId: id, memberId: me } },
+      select: { readAt: true, agreedAt: true },
+    });
+    payload.myAck = myAck ?? { readAt: null, agreedAt: null };
+
+    // （任意）閲覧時に既読を自動記録したい場合は ?markRead=true で有効化
+    if ((req.query.markRead ?? 'false') === 'true' && !myAck?.readAt) {
+      const now = new Date();
+      await prisma.meetingAck.upsert({
+        where: { meetingId_memberId: { meetingId: id, memberId: me } },
+        update: { readAt: now },
+        create: { meetingId: id, memberId: me, readAt: now, agreedAt: null },
+      });
+      payload.myAck = { readAt: now, agreedAt: myAck?.agreedAt ?? null };
+    }
+  }
+
+  return res.json(payload);
 };
 
 type CalWrite =
@@ -184,4 +210,81 @@ export const finalizeMeeting = async (req: Request, res: Response) => {
     return res.status(202).json({ scheduledAt: updated.scheduledAt, calendarWrite });
   }
   return res.status(200).json({ scheduledAt: updated.scheduledAt, calendarWrite });
+};
+
+async function finalizeAndNotify(req: Request, meetingId: string, startISO: string) {
+  // 1) scheduledAt を更新
+  const updated = await prisma.meeting.update({
+    where: { id: meetingId },
+    data: { scheduledAt: new Date(startISO) },
+    include: {
+      organizer: true,
+      members: { include: { member: true } }
+    },
+  });
+
+  // 2) Google Calendar（任意）
+  let calendarWrite: any = { ok: false, reason: 'skipped' };
+  if (process.env.CALENDAR_WRITE === 'true') {
+    calendarWrite = await upsertMeetingEvent(meetingId);
+  }
+
+  // 3) 通知
+  const participants = updated.members.filter(m => m.role === 'REQUIRED');
+  await Promise.all(
+    participants.map(p =>
+      sendMeetingNotification(
+        p.memberId,
+        '会議日程が確定しました',
+        `会議「${updated.title}」が確定しました。\n開始: ${updated.scheduledAt?.toISOString()}\n目的: ${updated.purpose}`,
+      )
+    )
+  );
+
+  // 4) 監査ログ（★ 実際の req を渡す）
+  await audit(req as any, meetingId, 'MEETING_AUTO_FINALIZE', {
+    scheduledAt: updated.scheduledAt,
+    calendarWrite,
+  });
+
+  return { scheduledAt: updated.scheduledAt, calendarWrite };
+}
+
+/** 自動確定: 候補の上位1件で確定 */
+export const autoFinalizeMeeting = async (req: Request, res: Response) => {
+  const meetingId = req.params.id;
+
+  const mtg = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    select: { scheduledAt: true, durationMinutes: true },
+  });
+  if (!mtg) return res.status(404).json({ error: 'not_found' });
+  if (mtg.scheduledAt) return res.status(409).json({ error: 'already_finalized' });
+
+  const days     = Math.max(1, Math.min(30, Number(req.query.days ?? 7)));
+  const startH   = Math.max(0, Math.min(23, Number(req.query.startHour ?? 9)));
+  const endH     = Math.max(startH+1, Math.min(24, Number(req.query.endHour ?? 18)));
+  const stepMin  = [15, 30, 60].includes(Number(req.query.stepMin)) ? Number(req.query.stepMin) : 30;
+  const duration = mtg.durationMinutes ?? 60;
+
+  const now = new Date();
+  const to  = new Date(); to.setDate(to.getDate() + days);
+
+  const members = await prisma.meetingMember.findMany({ where: { meetingId } });
+  const reqIds  = members.filter(m => m.role === 'REQUIRED').map(m => m.memberId);
+  const optIds  = members.filter(m => m.role !== 'REQUIRED').map(m => m.memberId);
+
+  const ranked = await rankCandidates(reqIds, optIds, now, to, duration, {
+    stepMin, startHour: startH, endHour: endH, weekdaysOnly: true,
+  });
+  if (!ranked.length) return res.status(422).json({ error: 'no_candidates' });
+
+  const top = ranked[0];
+  const result = await finalizeAndNotify(req, meetingId, top.start); // ★ req を渡す
+
+  return res.status(200).json({
+    chosenSlot: top,
+    scheduledAt: result.scheduledAt,
+    calendarWrite: result.calendarWrite,
+  });
 };

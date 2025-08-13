@@ -8,6 +8,7 @@ import { requireOrganizer } from '@backend/middleware/requireOrganizer';
 import { rankCandidates } from '@backend/modules/schedule/ranking.algorithm';
 import { setPreference } from './preference.controller';
 import { createIcs } from './meetingIcs.controller';
+import { autoFinalizeMeeting } from './meeting.controller';
 import { createMeetingSchema, inviteSchema, updateMeetingSchema } from './meeting.schemas';
 import { validate } from '@backend/middleware/validate';
 import { audit } from '@backend/lib/audit';
@@ -143,6 +144,13 @@ meetingRouter.get('/:id/candidates', ensureAuthenticated, async (req, res) => {
 meetingRouter.patch('/:id/candidates', ensureAuthenticated, setPreference);
 
 meetingRouter.post('/finalize/:id', finalizeMeeting);
+
+// ★ 追加：自動確定（上位候補を選ぶ）
+meetingRouter.post('/auto-finalize/:id',
+  ensureAuthenticated,
+  requireOrganizer,
+  autoFinalizeMeeting
+);
 
 /** 確定（主催者のみ） */
 meetingRouter.post('/finalize/:id', ensureAuthenticated, requireOrganizer, finalizeMeeting);

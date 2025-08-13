@@ -19,6 +19,9 @@ import { shareRouter } from './modules/share/share.routes';
 import { debugRouter } from './modules/debug/debug.routes';
 import { statusRouter } from './modules/system/status.routes';
 import { pdfRouter } from './modules/export/pdf.routes';
+import { ackRouter } from './modules/meetings/ack.routes';
+import { demoRouter } from './modules/demo/demo.routes';
+import { suggestRouter } from './modules/members/suggest.routes';
 
 export function createApp() {
   const app = express();
@@ -60,17 +63,28 @@ export function createApp() {
   app.use(passport.session());
 
   // ルーター配線
-  app.use('/api/auth', authRouter);
+  /* 4) ルーター（順序重要！より具体的なものを先に） */
+  app.use('/api/auth',     authRouter);
   app.use('/api/meetings', meetingRouter);
+
+  /* ★ 先に tasks を登録（/api/meetings/:id/tasks 系を先勝ちに） */
+  app.use('/api/meetings', tasksRouter);
+
+  /* それ以外の meetings 配下 */
   app.use('/api/meetings', agendaRouter);
   app.use('/api/meetings', minutesRouter);
-  app.use('/api/meetings', tasksRouter);
-  app.use('/api/members', roleBootstrapRouter);
+  app.use('/api/meetings', pdfRouter);
+  app.use('/api/meetings', suggestRouter);
+  app.use('/api/meetings', ackRouter);
   app.use('/api/meetings', shareRouter);
-  app.use('/api',          shareRouter);   // 公開リンク（/api/public/:token）
+
+  /* meetings 直下以外は最後に */
+  app.use('/api/members',  roleBootstrapRouter);
+  app.use('/api',          shareRouter);
   app.use('/api',          debugRouter);
   app.use('/api',          statusRouter);
-  app.use('/api/meetings', pdfRouter);
+  app.use('/api',          demoRouter);
+
 
   // デバッグ（任意）
   app.use((req, _res, next) => {
